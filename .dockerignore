@@ -1,0 +1,8 @@
+.git
+.venv
+bench/out
+bench/data
+bench/*.log
+**/__pycache__
+assets
+tests

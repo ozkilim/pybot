@@ -5,3 +5,9 @@ __pycache__/
 build/
 dist/
 .DS_Store
+
+# hybrid benchmark scratch
+bench/*.log
+bench/data/*.parquet
+bench/out/judge_cache.jsonl
+bench/queue_*.sh
