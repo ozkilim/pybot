@@ -63,6 +63,22 @@ by Python: 39.8% at 60% model share (+1.1 against the model alone, 95% CI −4.2
 50% (−1.5, CI −7.3 to +4.2). With 100 prompts neither difference is distinguishable from zero.
 A perfect gate would reach 40.2% with 30% of turns on the model.
 
+### Fitting on all 1,198 held-out prompts
+
+Doubling the fitting data from 600 to 1,198 prompts changed nothing: code-side AUROC stayed at 0.885,
+model-side went from 0.68 to 0.70, and the curves moved by less than a point. The gate is no longer
+short of data.
+
+| Turns answered by the model | 30% | 40% | 50% | 60% | 75% | 100% |
+|---|---:|---:|---:|---:|---:|---:|
+| Held-out, cross-validated (n=1,198) | 33.7% | 36.7% | 38.6% | 39.2% | 40.7% | 37.8% |
+| Benchmark sample (n=100) | 30.1% | 32.8% | 36.9% | 38.3% | 40.8% | 38.8% |
+| Perfect gate, held-out | 44.3% | 46.7% | 47.3% | 47.4% | 47.4% | 37.8% |
+
+The cross-validated row is the most reliable number so far: the hybrid is level with SmolLM2-360M
+alone when Python answers a little over half the turns, and about 3 points above it when Python
+answers a quarter.
+
 ## What the sample says
 
 - **"99% Python, 1% model" does not buy much.** At 2% model share the gain is +0.3 points.

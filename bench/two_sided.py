@@ -61,7 +61,7 @@ def fit_predict(Ftr, Etr, ce_tr, ids_tr, code_tr, llm_tr, both_tr, Fte, Ete, ce_
 
 
 def load_heldout(log):
-    T = rows(os.path.join(OUT, "pybot_heldout600_trace.jsonl"))
+    T = rows(os.path.join(OUT, os.environ.get("HELDOUT_TRACE", "pybot_heldout_trace.jsonl")))
     J = by_id(os.path.join(JUDGED, "pybot_heldout.judged.jsonl")); M = by_id(os.path.join(JUDGED, LLM + "_heldout.judged.jsonl"))
     T = [r for r in T if r["id"] in J]
     pos = np.array([log.pos[r["id"]] for r in T])
