@@ -14,6 +14,31 @@ adds a cascade around it:
 The margin is set by one dial: the share of everyday turns the model may take (1%, 10%, 30%, ...).
 Every reply carries its tier, module or model, the gate's numbers and its reasons.
 
+## Headline: the full 1,000-prompt benchmark (`BENCH=all python bench/chooser.py bench`)
+
+All 1,000 SmolTalkBench prompts, local Qwen3.6-35B-A3B judge (same recipe as the benchmark card,
+different judge, so compare rows with each other, not with the published 26.7%). The chooser's scorer
+and the deferral rule were fitted on held-out prompts only; the answer log it recalls from is the
+1,198 held-out prompts only, so no benchmark answer is ever recalled.
+
+| System (n=1,000) | Win rate | vs SmolLM2-360M alone (95% CI) | Turns sent to a model |
+|---|---:|---|---:|
+| PyBot, code only | 23.0% | | 0% |
+| Chooser, Python only (PyBot + knowledge entry + logged answer) | 30.5% | −8.3 (−11.5 to −5.2) | 0% |
+| Chooser + SmolLM2-360M | 37.4% | −1.4 (−4.3 to +1.5) | 20% |
+| Chooser + SmolLM2-360M | 39.8% | +1.0 (−1.6 to +3.6) | 30% |
+| Chooser + SmolLM2-360M | 41.8% | **+3.1 (+0.6 to +5.5)** | 40% |
+| Chooser + SmolLM2-360M | 43.0% | **+4.2 (+2.0 to +6.6)** | 50% |
+| Chooser + SmolLM2-360M | 44.4% | | 75% |
+| SmolLM2-360M (brief prompt) alone | 38.8% | | 100% |
+
+- With 70% of turns answered in Python, the hybrid matches the model on every turn (+1.0, CI
+  includes zero). With 60% in Python it beats it, and the confidence interval excludes zero.
+- Python alone goes from 23.0% to 30.5% just by choosing among three Python replies.
+- Hindsight ceilings: best Python reply 36.5%; oracle deferral over the chooser 51.8% at 30% model
+  share; best of everything 56.0%. The scorer leaves a lot on the table, mostly coin-flip judgements.
+- Candidate alone: entry 19.7%, logged answer 12.9%; chosen on 32% and 25% of prompts.
+
 ## Status: proof of concept on a 10x smaller sample
 
 Scored on **100 of SmolTalkBench's 1,000 prompts** (random, seed 0). The gate was fitted on up to

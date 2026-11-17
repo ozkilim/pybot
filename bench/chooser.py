@@ -31,6 +31,8 @@ CAND = os.path.join(ROOT, "bench", "cand")
 USE = [s for s in os.environ.get("SOURCES", "pybot,entry-emb-trim2,recall-emb").split(",") if s]
 EXTRA = os.environ.get("EXTRA", "1") == "1"   # also train the scorer on the small model's judged replies
 LLM_SRC = "smollm2-360m-brief"
+FULL = os.environ.get("BENCH", "100") == "all"   # BENCH=all: score all 1,000 benchmark prompts (judged in bench/full)
+BTAG = "benchall" if FULL else "bench"
 
 
 def boost():
@@ -44,9 +46,9 @@ class Data:
     def __init__(self, split, log, ce):
         self.log = log
         held = split == "heldout"
-        base = rows(os.path.join(ROOT, "bench", "data", "heldout.jsonl" if held else "bench100.jsonl"))
+        base = rows(os.path.join(ROOT, "bench", "data", "heldout.jsonl" if held else ("smoltalkbench.jsonl" if FULL else "bench100.jsonl")))
         self.ids = [r["id"] for r in base]
-        trace = by_id(os.path.join(OUT, "pybot_heldout_trace.jsonl" if held else "pybot_bench100_trace.jsonl"))
+        trace = by_id(os.path.join(OUT, "pybot_heldout_trace.jsonl" if held else ("pybot_benchall_trace.jsonl" if FULL else "pybot_bench100_trace.jsonl")))
         if held:
             self.q = log.q[[log.pos[i] for i in self.ids]]
             code_emb = log.code[[log.pos[i] for i in self.ids]]
@@ -58,7 +60,7 @@ class Data:
         ent_ids = json.load(open(os.path.join(OUT, "emb_entries_ids.json")))
         ent_pos = {e: k for k, e in enumerate(ent_ids)}
         EE = np.load(os.path.join(OUT, "emb_entries.npy"))
-        pj = by_id(os.path.join(ROOT, "bench", "poc1198" if held else "poc", "pybot_%s.judged.jsonl" % split))
+        pj = by_id(os.path.join(ROOT, "bench", "poc1198" if held else ("full" if FULL else "poc"), "pybot_%s.judged.jsonl" % split))
         self.cands = {}                                   # source -> list of dicts aligned with self.ids
         for s in USE:
             if s == "pybot":
@@ -67,7 +69,7 @@ class Data:
             else:
                 tag = os.environ.get("RECALL_LOG") if (s == "recall-emb" and not held) else None   # log-size ablation
                 name = s + ("-log" + tag if tag else "")
-                src = by_id(os.path.join(OUT, "%s_%s.jsonl" % (name, "heldoutall" if held else split)))
+                src = by_id(os.path.join(OUT, "%s_%s.jsonl" % (name, "heldoutall" if held else BTAG)))
                 rs = []
                 own = os.path.join(OUT, "%s_%s_emb.npy" % (name, split))      # replies from outside the held-out log
                 own_emb = dict(zip(json.load(open(own.replace(".npy", "_ids.json"))), np.load(own))) if os.path.exists(own) else {}
@@ -78,7 +80,8 @@ class Data:
                         r["emb"] = own_emb[i]
                     r["sim"], r["doc"] = r["similarity"], r.get("doc")
                     rs.append(r)
-                path = os.path.join(CAND, "%s_%s.judged.jsonl" % (name, split))
+                path = os.path.join(CAND, "%s_%s.judged.jsonl" % (name, split)) if (held or not FULL) else \
+                    os.path.join(ROOT, "bench", "full", "%s_benchall.judged.jsonl" % name)
                 sc = by_id(path) if os.path.exists(path) else {}
             for r, i in zip(rs, self.ids):
                 r["score"] = sc[i]["score"] if i in sc else np.nan
@@ -243,10 +246,10 @@ def main():
         Xb, yb, gb, sb = B.features()
         m = boost().fit(X[ok], y[ok])
         pred = m.predict(Xb)
-        Mb = by_id(os.path.join(ROOT, "bench", "poc", llm_run + "_bench.judged.jsonl"))
+        Mb = by_id(os.path.join(ROOT, "bench", "full" if FULL else "poc", llm_run + "_bench.judged.jsonl"))
         llm_b = np.array([Mb[i]["score"] for i in B.ids])
         p_llm = llm_side(log, np.array([log.pos[i] for i in llm_all_ids]), np.array([M[i]["score"] for i in llm_all_ids]), B.q)
-        chosen, best = report("benchmark sample (100 prompts), fitted on held-out only", yb, gb, sb, pred, p_llm, llm_b, len(B.ids))
+        chosen, best = report("benchmark (%d prompts), fitted on held-out only" % len(B.ids), yb, gb, sb, pred, p_llm, llm_b, len(B.ids))
         rng = np.random.default_rng(0)
         order = np.argsort(-(p_llm - best), kind="stable")
         for share in (0.0, 0.2, 0.3, 0.4, 0.5):
@@ -256,7 +259,7 @@ def main():
             print("  model share %3.0f%%: hybrid %.1f%%, against model alone %+.1f (95%% CI %+.1f to %+.1f)"
                   % (100 * share, 100 * mix.mean(), 100 * diff.mean(), 100 * np.quantile(bt, .025), 100 * np.quantile(bt, .975)))
         json.dump({"ids": B.ids, "chosen_source": [USE[j] for j in sb[pick(pred, gb, sb, len(B.ids))[0]]],
-                   "p_best": best.tolist(), "p_llm": p_llm.tolist()}, open(os.path.join(OUT, "chooser_bench.json"), "w"))
+                   "p_best": best.tolist(), "p_llm": p_llm.tolist()}, open(os.path.join(OUT, "chooser_%s.json" % BTAG), "w"))
 
 
 if __name__ == "__main__":
