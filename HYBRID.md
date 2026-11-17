@@ -63,6 +63,14 @@ Two other ideas were tried and did not help:
   question, yes or no" about PyBot's reply. With SmolLM2-1.7B it predicts PyBot's score well
   (AUROC 0.81) and adds about 1 point to the gate; with SmolLM2-360M it adds nothing.
 
+- **Recall by meaning** (`bench/embed.py`, all-MiniLM, 23M parameters, no generation): match the
+  question to the 1,198 logged ones by embedding and return the logged answer when similarity is
+  at least 0.8. That covers 24% of benchmark prompts and scores about what SmolLM2-360M scores on
+  them. Recall first, SmolLM2-360M otherwise: 38.3% with 76% of turns on the model, against 38.8%
+  for the model alone. So it saves a quarter of model calls at the same quality; it does not raise
+  quality, and it is below SmolLM2-1.7B. Below 0.8 similarity the logged answer is close to useless.
+  Putting PyBot between the two (recall 24%, PyBot 51%, model 25%) gives 27.1%.
+
 100 prompts is a small sample (intervals of about ±7 points), and the judge is not the benchmark's.
 
 ## Run it
