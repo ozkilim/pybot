@@ -16,34 +16,54 @@ Every reply carries its tier, module or model, the gate's numbers and its reason
 
 ## Status: proof of concept on a 10x smaller sample
 
-Scored on **100 of SmolTalkBench's 1,000 prompts** (random, seed 0). The gate was fitted on **150
-held-out prompts** from the same source that are not in the benchmark. Same scoring recipe as the
-benchmark card (AlpacaEval 2.0 weighted prompt, logprob score, WildBench length penalty), but with a
-**local judge, Qwen3.6-35B-A3B**, not the card's DeepSeek-V4.1-Flash. So compare rows in this table
-with each other, not with the published 26.7%.
+Scored on **100 of SmolTalkBench's 1,000 prompts** (random, seed 0). The gate was fitted on up to
+**600 held-out prompts** from the same source that are not in the benchmark. Same scoring recipe as
+the benchmark card (AlpacaEval 2.0 weighted prompt, logprob score, WildBench length penalty), but
+with a **local judge, Qwen3.6-35B-A3B**, not the card's DeepSeek-V4.1-Flash. So compare rows in this
+table with each other, not with the published 26.7%.
 
 | System | Win rate | 95% CI | Turns answered by a model |
 |---|---:|---|---:|
 | PyBot, code only | 17.3% | 10.8–24.4 | 0% |
-| Hybrid | 17.5% | 10.8–24.5 | 3% |
-| Hybrid | 21.3% | 14.5–28.7 | 14% |
-| Hybrid | 26.9% | 19.7–34.9 | 36% |
-| Hybrid | 34.6% | 26.9–42.5 | 53% |
-| SmolLM2-360M alone (brief prompt) | 38.8% | 30.9–46.6 | 100% |
+| Hybrid → SmolLM2-360M | 17.6% | 11.0–24.5 | 2% |
+| Hybrid → SmolLM2-360M | 21.0% | 14.3–28.1 | 13% |
+| Hybrid → SmolLM2-360M | 27.2% | 19.9–34.6 | 34% |
+| Hybrid → SmolLM2-360M | 34.2% | 26.7–42.0 | 52% |
+| SmolLM2-360M alone | 35.2% | 28.4–41.9 | 100% |
+| SmolLM2-360M alone, brief prompt | 38.8% | 30.9–46.6 | 100% |
+| Gemma3-1B alone, brief prompt | 50.8% | 42.7–58.9 | 100% |
+| SmolLM2-1.7B alone, brief prompt | 55.3% | 47.3–62.9 | 100% |
 
 Full table: [bench/results/RESULTS.md](bench/results/RESULTS.md). Chart: `bench/results/tradeoff.png`.
 
-What this says so far:
+## What the sample says
 
-- **"99% Python, 1% model" does not buy much here.** At 3% model share the gain is +0.2 points.
-- **The small model alone beats the hybrid at every setting.** With a "keep it brief" system prompt,
-  SmolLM2-360M scores about twice PyBot under this judge. (SmolLM2 was trained on the conversations the
-  benchmark is drawn from, so its score is inflated; a model that was not is still to be scored.)
-- **The gate does add something.** From about 10% model share it beats routing the same number of
-  turns at random, by 1 to 6 points. Turns it defers score about 10% as code and about 37% as model.
-- **There is headroom.** Picking the better of the two replies per prompt, with hindsight, gives 44.8%,
-  above either system alone. A gate fitted on 150 prompts (AUROC 0.69) is far from that.
-- 100 prompts is a small sample: the intervals are wide and none of this is settled.
+- **"99% Python, 1% model" does not buy much.** At 2% model share the gain is +0.3 points.
+- **Every small model alone beats the hybrid at every setting.** Gemma3-1B was not trained on the
+  benchmark's source conversations (SmolLM2 was), and it scores three times PyBot.
+- **A second local judge agrees on the order**: Gemma-3-12B gives PyBot 21.3% and brief-prompt
+  SmolLM2-360M 55.6% on the same 100 prompts.
+- **The gate is not the bottleneck.** `bench/gate_search.py` cross-validates 12 gate designs on
+  held-out prompts (rules, 10 to 27 signals, three regularisation strengths, predicting the gain
+  directly). All land 1 to 3.5 points above random routing; the shipped one is the best of them.
+- **Even a perfect gate adds little over the model alone**: picking the better reply per prompt with
+  hindsight gives 44.8% against SmolLM2-360M's 38.8%, and 58.6% against SmolLM2-1.7B's 55.3%. The
+  code's good answers mostly fall on prompts the model also answers well.
+- **Where the code loses.** About a third of turns come from PyBot's fallback modules ("I don't know
+  enough to answer that"); those score about 4% as code and 36% as model, and the gate finds them.
+  On the rest, where PyBot does give a real answer, it scores about 26% against the model's 38 to 45%,
+  and no signal we tried separates the good ones.
+
+Two other ideas were tried and did not help:
+
+- **A recall tier** (`hybrid/recall.py`): answer from the 1,198 logged held-out question/answer pairs
+  when a TF-IDF match is close. Only 11% of benchmark prompts have a close match (similarity ≥ 0.7),
+  and there it scores 32%, below the model.
+- **A one-token check** (`bench/verify_signal.py`): ask the small model "does this reply answer the
+  question, yes or no" about PyBot's reply. With SmolLM2-1.7B it predicts PyBot's score well
+  (AUROC 0.81) and adds about 1 point to the gate; with SmolLM2-360M it adds nothing.
+
+100 prompts is a small sample (intervals of about ±7 points), and the judge is not the benchmark's.
 
 ## Run it
 
