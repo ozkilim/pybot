@@ -1,10 +1,11 @@
-"""A small web demo of the cascade. Standard library only.
+"""Live side-by-side demo: PyBot, a small model, and PyBot-70. Standard library server.
 
-    python demo/server.py                 # http://localhost:7860
-    PORT=8000 HYBRID_LLM_MODEL=smollm2:360m python demo/server.py
+    python demo/server.py                 # http://localhost:7860  (needs Ollama: smollm2:360m, all-minilm)
 
-Each reply shows which tier answered (Python or the model), the module or model behind it,
-the gate's numbers, and what the code would have said when the turn was deferred.
+One message goes to all three. Each column keeps its own conversation:
+  pybot     PyBot alone (640,000 lines of Python, no model)
+  model     SmolLM2-360M on every turn
+  pybot70   three Python replies + a scorer; the model only when it is expected to do better
 """
 import json
 import os
@@ -17,26 +18,19 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 
-from hybrid import Cascade  # noqa: E402
+from hybrid.llm import BRIEF, OllamaLLM  # noqa: E402
+from hybrid.pybot70 import PyBot70, _history  # noqa: E402
 
-SESSION_TTL = 3600
-MAX_SESSIONS = 500
-MAX_TEXT = 1000
+OLLAMA = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+MODEL = os.environ.get("HYBRID_LLM_MODEL", "smollm2:360m")
+SESSION_TTL, MAX_SESSIONS, MAX_TEXT = 3600, 500, 1000
+BENCH = {"pybot": 23.0, "model": 38.8, "pybot70": 39.8}     # full SmolTalkBench, local judge (HYBRID.md)
 
-print("Loading PyBot (about 640,000 lines of Python)...", flush=True)
-BOT = Cascade()
-LOCK = threading.Lock()
-SESSIONS = {}          # id -> {"memory": {}, "seen": time, "code": n, "llm": n}
-TOTAL = {"code": 0, "llm": 0}
-
-
-def _results():
-    path = os.path.join(ROOT, "bench", "results", "results.json")
-    try:
-        with open(path) as handle:
-            return json.load(handle)
-    except (OSError, ValueError):
-        return None
+print("Loading PyBot (about 640,000 lines of Python) and the PyBot-70 router...", flush=True)
+LLM = OllamaLLM(MODEL, OLLAMA, system=BRIEF)
+BOT = PyBot70(llm=LLM, ollama=OLLAMA)
+LOCK = threading.Lock()          # PyBot's modules share global state
+SESSIONS = {}
 
 
 def _session(key):
@@ -44,29 +38,43 @@ def _session(key):
     if len(SESSIONS) > MAX_SESSIONS:
         for old in [k for k, v in SESSIONS.items() if now - v["seen"] > SESSION_TTL]:
             del SESSIONS[old]
-        if len(SESSIONS) > MAX_SESSIONS:
-            SESSIONS.clear()
-    session = SESSIONS.setdefault(key, {"memory": {}, "seen": now, "code": 0, "llm": 0})
-    session["seen"] = now
-    return session
+    s = SESSIONS.setdefault(key, {"seen": now, "pybot": {}, "pybot70": {}, "model": [],
+                                  "count": {"python": 0, "model": 0}})
+    s["seen"] = now
+    return s
 
 
-def chat(payload):
+def turn(payload):
     text = str(payload.get("text", "")).strip()[:MAX_TEXT]
-    if not text:
-        return {"error": "empty message"}
-    budget = str(payload.get("budget", "0.10"))
-    with LOCK:  # PyBot's modules share global state, and the gate setting is per request
-        session = _session(str(payload.get("session", "anon"))[:64])
-        if budget in ("0", "0.00"):
-            BOT.gate.set_budget("0.01", tau=2.0)      # never defer: PyBot alone
-        else:
-            BOT.gate.set_budget(budget)
-        out = BOT.turn(text, session["memory"])
-        session[out["tier"]] += 1
-        TOTAL[out["tier"]] += 1
-        out["session"] = {"code": session["code"], "llm": session["llm"]}
-        out["all_sessions"] = dict(TOTAL)
+    system = payload.get("system")
+    if not text or system not in BENCH:
+        return {"error": "bad request"}
+    s = _session(str(payload.get("session", "anon"))[:64])
+    t0 = time.perf_counter()
+    if system == "pybot":
+        with LOCK:
+            try:
+                r = BOT.runtime.turn(text, s["pybot"])
+                reply, module = " ".join(str(r["reply"]).split()) or "Hello!", r.get("module")
+            except Exception:  # noqa: BLE001
+                reply, module = "Hello!", None
+        return {"reply": reply, "tier": "python", "label": "Python · " + (module or "pybot"),
+                "ms": (time.perf_counter() - t0) * 1000}
+    if system == "model":
+        history = s["model"][-8:] + [{"role": "user", "content": text}]
+        try:
+            reply = LLM.chat(history)
+        except Exception as e:  # noqa: BLE001
+            return {"error": "model unavailable: %s" % e}
+        s["model"] = history + [{"role": "assistant", "content": reply}]
+        return {"reply": reply, "tier": "model", "label": "Model · " + MODEL, "ms": (time.perf_counter() - t0) * 1000}
+    with LOCK:                                   # Python side and routing; the model call happens outside the lock
+        out = BOT.decide(text, s["pybot70"])
+    out = BOT.answer(out, text, s["pybot70"])
+    s["count"][out["tier"]] += 1
+    out["label"] = ("Model · " + MODEL) if out["tier"] == "model" else ("Python · " + out["source_label"])
+    out["ms"] = (time.perf_counter() - t0) * 1000
+    out["count"] = dict(s["count"])
     return out
 
 
@@ -84,9 +92,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.path in ("/", "/index.html"):
             with open(os.path.join(HERE, "index.html"), "rb") as handle:
                 self._send(200, handle.read(), "text/html; charset=utf-8")
+        elif self.path == "/moneyshot.png":
+            with open(os.path.join(ROOT, "bench", "results", "moneyshot.png"), "rb") as handle:
+                self._send(200, handle.read(), "image/png")
         elif self.path == "/api/info":
-            self._send(200, {"model": getattr(BOT.llm, "name", None), "gate_model": BOT.gate.llm,
-                             "budgets": ["0"] + BOT.gate.budgets(), "results": _results(), "total": TOTAL})
+            self._send(200, {"model": MODEL, "bench": BENCH, "model_share": BOT.model_share})
         elif self.path == "/healthz":
             self._send(200, {"ok": True})
         else:
@@ -94,28 +104,25 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):  # noqa: N802
         try:
-            length = min(int(self.headers.get("Content-Length", 0)), 20000)
-            payload = json.loads(self.rfile.read(length) or b"{}")
+            payload = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length", 0)), 20000)) or b"{}")
         except ValueError:
             return self._send(400, {"error": "bad json"})
-        if self.path == "/api/chat":
-            self._send(200, chat(payload))
+        if self.path == "/api/turn":
+            self._send(200, turn(payload))
         elif self.path == "/api/reset":
-            with LOCK:
-                SESSIONS.pop(str(payload.get("session", "anon"))[:64], None)
+            SESSIONS.pop(str(payload.get("session", "anon"))[:64], None)
             self._send(200, {"ok": True})
         else:
             self._send(404, {"error": "not found"})
 
-    def log_message(self, *args):  # quiet
+    def log_message(self, *args):
         pass
 
 
 def main():
     port = int(os.environ.get("PORT", "7860"))
-    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
-    print("Demo on http://localhost:%d  (model tier: %s)" % (port, getattr(BOT.llm, "name", "none")), flush=True)
-    server.serve_forever()
+    print("Demo on http://localhost:%d  (model: %s)" % (port, MODEL), flush=True)
+    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 
 if __name__ == "__main__":
