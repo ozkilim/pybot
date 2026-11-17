@@ -79,6 +79,25 @@ The cross-validated row is the most reliable number so far: the hybrid is level 
 alone when Python answers a little over half the turns, and about 3 points above it when Python
 answers a quarter.
 
+### A chooser over several Python replies (`bench/chooser.py`)
+
+Instead of only gating PyBot's one reply, the Python side now offers three, none of which generates
+text: PyBot's reply, the PyBot knowledge entry closest in meaning to the question (6,262 entries,
+first two sentences), and the logged answer to the closest logged question. One scorer predicts each
+reply's score from meaning-level signals and the candidates' agreement with each other; the best one
+is kept, and the turn goes to the model only when even that one is expected to lose.
+
+| | Python only | 30% model | 40% | 50% | 60% | 75% | model alone |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Held-out, grouped 5-fold (n=600) | 25.8% | 35.5% | 38.0% | 39.2% | 40.8% | 40.3% | 36.9% |
+| Benchmark sample (n=100) | 27.1% | 34.1% | 37.4% | 42.1% | 44.0% | 46.0% | 38.8% |
+
+PyBot alone is 19.7% / 17.3% on the same prompts, so choosing among Python replies adds 6 to 10
+points with no model call. The hybrid passes SmolLM2-360M alone from about 40% model share. On the
+sample at 50%: +3.3 against the model alone (95% CI −3.5 to +10.8). Picking the best Python reply
+with hindsight would give 33 to 34%, and deferring perfectly on top of the chooser 48% at 30% model
+share, so the scorer is still the limit.
+
 ## What the sample says
 
 - **"99% Python, 1% model" does not buy much.** At 2% model share the gain is +0.3 points.
