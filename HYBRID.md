@@ -36,6 +36,33 @@ table with each other, not with the published 26.7%.
 
 Full table: [bench/results/RESULTS.md](bench/results/RESULTS.md). Chart: `bench/results/tradeoff.png`.
 
+## Update: a much better gate (experiment, not yet wired into `hybrid/`)
+
+`bench/two_sided.py` predicts the code's score and the model's score separately and defers on the gap.
+It is fitted on 600 held-out prompts and adds signals the first gate did not have, none of which
+generate text:
+
+- **PyBot's own record of how it answered** (`memory["last_answer"]`): which knowledge entry, how much
+  of the question that entry's keywords cover, whether the entry's name is in the question.
+- **Meaning** (all-MiniLM embeddings, 23M parameters): is the reply about the question, and does it
+  agree with logged answers to the nearest logged questions. These two alone separate PyBot's good
+  real answers from its bad ones with AUROC 0.79.
+- **A model side**: question type, question embedding, and how the model scored on the nearest
+  already-judged questions, to spot prompts the model will fail too (keeping the code there is free).
+
+Out of fold on held-out prompts the code-side AUROC went from 0.69 to 0.885.
+
+| Turns answered by the model | 30% | 40% | 50% | 60% | 75% | 100% |
+|---|---:|---:|---:|---:|---:|---:|
+| Held-out, cross-validated (n=600) | 32.4% | 36.1% | 38.3% | 38.7% | 39.5% | 36.9% |
+| Benchmark sample (n=100), first gate | 27.2% | 32.5% | 34.2% | – | 36.4% | 38.8% |
+| Benchmark sample (n=100), new gate | 29.4% | 33.5% | 37.2% | 39.8% | 40.9% | 38.8% |
+
+On the benchmark sample the hybrid now matches SmolLM2-360M alone with 40 to 50% of turns answered
+by Python: 39.8% at 60% model share (+1.1 against the model alone, 95% CI −4.2 to +6.5) and 37.2% at
+50% (−1.5, CI −7.3 to +4.2). With 100 prompts neither difference is distinguishable from zero.
+A perfect gate would reach 40.2% with 30% of turns on the model.
+
 ## What the sample says
 
 - **"99% Python, 1% model" does not buy much.** At 2% model share the gain is +0.3 points.

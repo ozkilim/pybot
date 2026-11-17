@@ -23,19 +23,31 @@ def _init():
     _runtime = runtime
 
 
+def _trace(memory):
+    """How the code found its answer: the knowledge entry, its keywords, and what competed."""
+    last = memory.get("last_answer") or {}
+    entries = memory.get("entry_answers") or []
+    return {"entry_id": last.get("id"), "domain": last.get("domain"),
+            "keys": [str(k) for k in (last.get("keys") or [])][:60],
+            "n_entries": len(entries) if isinstance(entries, list) else 0,
+            "wants": memory.get("intent_wants"), "kind": (memory.get("understood") or {}).get("kind")}
+
+
 def _one(row):
     random.seed(0)
     start = time.perf_counter()
     try:
-        result = _runtime.turn(row["instruction"], {})
+        memory = {}
+        result = _runtime.turn(row["instruction"], memory)
+        trace = _trace(memory)
         reply = " ".join(str(result["reply"]).split()) or "Hello!"
         module = result.get("module")
         candidates = [{"module": c["module"], "priority": c["priority"],
                        "reply": " ".join(str(c["reply"]).split())} for c in result.get("candidates", [])]
     except Exception:  # noqa: BLE001 - same contract as pybot.py: a turn never fails
-        reply, module, candidates = "Hello!", None, []
+        reply, module, candidates, trace = "Hello!", None, [], {}
     return {"id": row["id"], "instruction": row["instruction"], "reply": reply, "module": module,
-            "candidates": candidates, "seconds": time.perf_counter() - start}
+            "candidates": candidates, "trace": trace, "seconds": time.perf_counter() - start}
 
 
 def main():
