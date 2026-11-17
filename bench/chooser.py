@@ -28,7 +28,9 @@ from signals import Log, OUT, SHARES, by_id, curve, inside, rows  # noqa: E402
 
 SOURCES = ("pybot", "entry-emb-trim2", "entry-ce-trim2", "recall-emb", "recall-ce")
 CAND = os.path.join(ROOT, "bench", "cand")
-USE = [s for s in os.environ.get("SOURCES", ",".join(SOURCES)).split(",") if s]
+USE = [s for s in os.environ.get("SOURCES", "pybot,entry-emb-trim2,recall-emb").split(",") if s]
+EXTRA = os.environ.get("EXTRA", "1") == "1"   # also train the scorer on the small model's judged replies
+LLM_SRC = "smollm2-360m-brief"
 
 
 def boost():
@@ -42,7 +44,7 @@ class Data:
     def __init__(self, split, log, ce):
         self.log = log
         held = split == "heldout"
-        base = rows(os.path.join(ROOT, "bench", "data", "heldout600.jsonl" if held else "bench100.jsonl"))
+        base = rows(os.path.join(ROOT, "bench", "data", "heldout.jsonl" if held else "bench100.jsonl"))
         self.ids = [r["id"] for r in base]
         trace = by_id(os.path.join(OUT, "pybot_heldout_trace.jsonl" if held else "pybot_bench100_trace.jsonl"))
         if held:
@@ -63,24 +65,37 @@ class Data:
                 rs = [dict(trace[i], emb=code_emb[k], sim=0.0, doc=None) for k, i in enumerate(self.ids)]
                 sc = pj
             else:
-                src = by_id(os.path.join(OUT, "%s_%s.jsonl" % (s, split)))
+                tag = os.environ.get("RECALL_LOG") if (s == "recall-emb" and not held) else None   # log-size ablation
+                name = s + ("-log" + tag if tag else "")
+                src = by_id(os.path.join(OUT, "%s_%s.jsonl" % (name, "heldoutall" if held else split)))
                 rs = []
+                own = os.path.join(OUT, "%s_%s_emb.npy" % (name, split))      # replies from outside the held-out log
+                own_emb = dict(zip(json.load(open(own.replace(".npy", "_ids.json"))), np.load(own))) if os.path.exists(own) else {}
                 for i in self.ids:
                     r = dict(src[i])
-                    r["emb"] = EE[ent_pos[r["entry"]]] if "entry" in r else log.ref[r["doc"]]
+                    r["emb"] = EE[ent_pos[r["entry"]]] if "entry" in r else (log.ref[r["doc"]] if r.get("doc") is not None else None)
+                    if r["emb"] is None:
+                        r["emb"] = own_emb[i]
                     r["sim"], r["doc"] = r["similarity"], r.get("doc")
                     rs.append(r)
-                path = os.path.join(CAND, "%s_%s.judged.jsonl" % (s, split))
+                path = os.path.join(CAND, "%s_%s.judged.jsonl" % (name, split))
                 sc = by_id(path) if os.path.exists(path) else {}
             for r, i in zip(rs, self.ids):
                 r["score"] = sc[i]["score"] if i in sc else np.nan
                 r["source"] = s
             self.cands[s] = rs
+        self.all = list(USE)
+        if held and EXTRA:                                 # training-only rows: never offered as a candidate
+            L = by_id(os.path.join(OUT, LLM_SRC + "_heldout.jsonl")); LJ = by_id(os.path.join(ROOT, "bench", "poc1198", LLM_SRC + "_heldout.judged.jsonl"))
+            LE = np.load(os.path.join(OUT, "emb_heldout_360m.npy"))
+            self.cands["llm"] = [dict(L[i], emb=LE[log.pos[i]], sim=0.0, doc=None, source="llm",
+                                      score=LJ[i]["score"] if i in LJ else np.nan) for i in self.ids]
+            self.all.append("llm")
         # cross-encoder relevance for every (question, candidate reply)
-        pairs = [(r["instruction"], r["reply"]) for s in USE for r in self.cands[s]]
+        pairs = [(r["instruction"], r["reply"]) for s in self.all for r in self.cands[s]]
         vals = ce.predict(pairs, batch_size=64)
         k = 0
-        for s in USE:
+        for s in self.all:
             for r in self.cands[s]:
                 r["ce"] = float(vals[k]); k += 1
         self.held = held
@@ -99,8 +114,10 @@ class Data:
             pair = embs @ embs.T
             np.fill_diagonal(pair, -1)
             qw = content_words(self.cands[USE[0]][k]["instruction"])
-            for j, s in enumerate(USE):
+            for j, s in enumerate(self.all):
                 r = self.cands[s][k]
+                extra = j >= len(USE)
+                pj = np.sort(embs @ r["emb"])[::-1] if extra else None
                 near = [t for t in top if t != r["doc"]][:5]      # do not let a logged answer agree with itself
                 agree = log.ref[near] @ r["emb"]
                 w = np.maximum(sims[near], 0)
@@ -108,7 +125,8 @@ class Data:
                 ins = inside(r) if s == "pybot" else {}
                 f = [float(q @ r["emb"]), r["ce"], float(agree[0]), float(agree.max()), float((agree * w).sum() / (w.sum() + 1e-9)),
                      float(sims[top[0]]), float(sims[top[:5]].mean()), r["sim"],
-                     float(pair[j].max()), float(np.sort(pair[j])[-2]) if len(USE) > 2 else 0.0,   # agreement with the other candidates
+                     float(pj[0]) if extra else float(pair[j].max()),                       # agreement with the other candidates
+                     float(pj[1]) if extra else (float(np.sort(pair[j])[-2]) if len(USE) > 2 else 0.0),
                      len(r["reply"]) / 600.0, len(qw & rw) / len(qw) if qw else 0.0,
                      1.0 if ABSTAIN.search(r["reply"]) else 0.0, 1.0 if HANDS_BACK.search(r["reply"]) else 0.0,
                      1.0 if r["reply"].rstrip().endswith("?") else 0.0,
@@ -149,7 +167,20 @@ def pick(pred, g, src, n):
     return best_row, best
 
 
-def report(title, y, g, src, pred, p_llm, llm, n):
+def two_stage(rank, chosen, best, llm, pred_llm_reply, margin=0.0):
+    """Defer by rank; on deferred turns keep the model's reply only if the scorer rates it above
+    the best Python reply (plus a margin). Returns the win rate at each share of model calls."""
+    order = np.argsort(-rank, kind="stable")
+    out = []
+    for share in SHARES:
+        d = np.zeros(len(chosen), bool)
+        d[order[:int(round(share * len(chosen)))]] = True
+        use_llm = d & (pred_llm_reply >= best + margin)
+        out.append(100 * np.where(use_llm, llm, chosen).mean())
+    return out
+
+
+def report(title, y, g, src, pred, p_llm, llm, n, pred_llm_reply=None):
     Y = np.full((n, len(USE)), np.nan)
     Y[g, src] = y
     best_row, best = pick(pred, g, src, n)
@@ -163,6 +194,11 @@ def report(title, y, g, src, pred, p_llm, llm, n):
     print("  %-36s %s" % ("model share:", "  ".join("%4.0f%%" % (100 * s) for s in SHARES)))
     print("  %-36s %s" % ("chooser + deferral (model - best)", "  ".join("%5.1f" % v for v in curve(p_llm - best, chosen, llm))))
     print("  %-36s %s" % ("chooser + deferral (best only)", "  ".join("%5.1f" % v for v in curve(-best, chosen, llm))))
+    if pred_llm_reply is not None:
+        for mg in (0.0, -0.05, -0.1):
+            print("  %-36s %s" % ("two-stage, margin %+.2f" % mg, "  ".join("%5.1f" % v for v in two_stage(p_llm - best, chosen, best, llm, pred_llm_reply, mg))))
+        allc = two_stage(np.ones(n), chosen, best, llm, pred_llm_reply, 0.0)[-1]
+        print("  model on every turn, scorer picks between its reply and Python: %.1f%%" % (100 * np.where(pred_llm_reply >= best, llm, chosen).mean()))
     print("  %-36s %s" % ("oracle deferral over chooser", "  ".join("%5.1f" % v for v in curve(llm - chosen, chosen, llm))))
     return chosen, best
 
@@ -178,8 +214,9 @@ def main():
     M = by_id(os.path.join(ROOT, "bench", "poc1198", llm_run + "_heldout.judged.jsonl"))
     llm_all_ids = [i for i in log.pos if i in M]
     llm_h = np.array([M[i]["score"] for i in H.ids])
+    sel = src < len(USE)                                   # rows that may be chosen at run time
     ok = ~np.isnan(y)
-    full = np.array([ok[g == k].all() for k in range(len(H.ids))])     # prompts with every candidate judged
+    full = np.array([ok[(g == k) & sel].all() for k in range(len(H.ids))])     # prompts with every candidate judged
     print("held-out prompts: %d, with all %d candidates judged: %d" % (len(H.ids), len(USE), full.sum()))
     if mode == "cv":
         pred, p_llm = np.zeros(len(y)), np.zeros(len(H.ids))
@@ -192,10 +229,15 @@ def main():
             test_ids = {H.ids[k] for k in tep}
             tr_ids = [i for i in llm_all_ids if i not in test_ids]
             p_llm[tep] = llm_side(log, np.array([log.pos[i] for i in tr_ids]), np.array([M[i]["score"] for i in tr_ids]), log.q[hpos[tep]])
-        keep = np.isin(g, np.where(full)[0])
+        keep = np.isin(g, np.where(full)[0]) & sel
         remap = {k: n for n, k in enumerate(np.where(full)[0])}
         g2 = np.array([remap[k] for k in g[keep]])
-        report("held-out, grouped 5-fold", y[keep], g2, src[keep], pred[keep], p_llm[full], llm_h[full], int(full.sum()))
+        plr = None
+        if EXTRA:
+            plr = np.full(len(H.ids), np.nan)
+            plr[g[src == len(USE)]] = pred[src == len(USE)]
+            plr = plr[full]
+        report("held-out, grouped 5-fold", y[keep], g2, src[keep], pred[keep], p_llm[full], llm_h[full], int(full.sum()), plr)
     else:
         B = Data("bench", log, ce)
         Xb, yb, gb, sb = B.features()

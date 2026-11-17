@@ -98,6 +98,48 @@ sample at 50%: +3.3 against the model alone (95% CI −3.5 to +10.8). Picking th
 with hindsight would give 33 to 34%, and deferring perfectly on top of the chooser 48% at 30% model
 share, so the scorer is still the limit.
 
+### Latest numbers and what limits them
+
+With the scorer trained on all judged held-out replies (PyBot's 1,198, the two other Python candidates'
+600 each, and the small model's 1,198 as extra examples):
+
+| Benchmark sample (n=100) | Python only | 20% model | 30% | 40% | 50% | 60% | 75% | model alone |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Win rate | 27.7% | 34.8% | 37.5% | 38.7% | 40.1% | 42.0% | 43.5% | 38.8% |
+
+PyBot alone: 17.3%. At 30% model share the difference from the model alone is −1.2 (95% CI −9.3 to
++7.0); at 50% it is +1.3 (−6.0 to +8.5). Cross-validated on 600 held-out prompts the same system
+gives 25.1% Python only, 34.8% at 30%, 37.9% at 40%, 39.7% at 50%, against 36.9% for the model alone,
+so the sample is a little kinder than the held-out estimate.
+
+Things tried on top that did not help:
+
+- More Python candidates (second and third closest entry or logged answer, cross-encoder re-ranking,
+  untrimmed entries): the hindsight ceiling rises from 34% to 39% with eight candidates but each one
+  is weak alone (4 to 9%) and the chooser does not benefit.
+- More training examples for the scorer: no change.
+- A second check after the model has answered (keep its reply only if the scorer rates it above the
+  best Python reply): under half a point.
+- Trimming PyBot's replies to two sentences: slightly worse (19.9% against 21.7% on held-out).
+
+Why the scorer has stopped improving (`bench/look_at_mistakes.py`): many of its misses are PyBot
+answers that are correct and on topic ("20 minutes, before 3pm" for a nap; a clear definition of a
+web browser or a fraction) where the judge preferred the reference's wording. Those are close to
+coin flips and no signal predicts them. The other kind is an honest "I don't know" that wins because
+the reference invented a fact (a fixture for "the Wildcats", a founding date for "my hometown").
+
+How it moves with the size of the answer log (same 100 prompts, only the logged-answer candidate
+changes; the 2,098 row adds the benchmark's other 900 prompts as log, which is only valid for this
+100-prompt experiment):
+
+| Logged question/answer pairs | 300 | 600 | 1,198 | 2,098 |
+|---|---:|---:|---:|---:|
+| Prompts with a close logged match | 12% | 16% | 24% | 30% |
+| Python only | 22.7% | 24.4% | 27.7% | 28.1% |
+| Hybrid at 30% model share | 32.4% | 33.9% | 37.5% | 36.3% |
+
+More logged answers help up to about 1,200 pairs and then flatten on this sample.
+
 ## What the sample says
 
 - **"99% Python, 1% model" does not buy much.** At 2% model share the gain is +0.3 points.
