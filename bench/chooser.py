@@ -26,13 +26,36 @@ sys.path.insert(0, os.path.join(ROOT, "bench")); sys.path.insert(0, ROOT)
 from hybrid.features import ABSTAIN, HANDS_BACK, content_words  # noqa: E402
 from signals import Log, OUT, SHARES, by_id, curve, inside, rows  # noqa: E402
 
-SOURCES = ("pybot", "entry-emb-trim2", "entry-ce-trim2", "recall-emb", "recall-ce")
+SOURCES = ("pybot", "entry-emb-trim2", "entry-ce-trim2", "recall-emb", "recall-ce", "crystal")
 CAND = os.path.join(ROOT, "bench", "cand")
 USE = [s for s in os.environ.get("SOURCES", "pybot,entry-emb-trim2,recall-emb").split(",") if s]
 EXTRA = os.environ.get("EXTRA", "1") == "1"   # also train the scorer on the small model's judged replies
 LLM_SRC = "smollm2-360m-brief"
 FULL = os.environ.get("BENCH", "100") == "all"   # BENCH=all: score all 1,000 benchmark prompts (judged in bench/full)
 BTAG = "benchall" if FULL else "bench"
+JCE = os.environ.get("JCE", "0") == "1"          # add the distilled judge (bench/distill_judge.py) as a feature
+
+
+_CA = []
+
+
+def crystal_emb():
+    if not _CA:
+        _CA.append(np.load(os.path.join(OUT, "crystal_a_emb.npy")))
+    return _CA[0]
+
+
+def judge_ce_scores(rows_, held):
+    """Distilled-judge score per (question, reply). Held-out: out-of-fold predictions; benchmark: the full model."""
+    import hashlib
+    if held:
+        oof = json.load(open(os.path.join(OUT, "judge_ce_oof.json")))
+        return [oof.get(r["id"] + "|" + hashlib.sha1(r["reply"].encode()).hexdigest()[:16], np.nan) for r in rows_]
+    from distill_judge import predict
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer
+    path = os.path.join(OUT, "judge_ce")
+    tok, model = AutoTokenizer.from_pretrained(path), AutoModelForSequenceClassification.from_pretrained(path).eval()
+    return list(predict(tok, model, [r["instruction"] for r in rows_], [r["reply"] for r in rows_]))
 
 
 def boost():
@@ -76,11 +99,14 @@ class Data:
                 for i in self.ids:
                     r = dict(src[i])
                     r["emb"] = EE[ent_pos[r["entry"]]] if "entry" in r else (log.ref[r["doc"]] if r.get("doc") is not None else None)
+                    if "crystal" in r:                                    # cached model answer (bench/crystallize.py)
+                        r["emb"] = crystal_emb()[r["crystal"]]
                     if r["emb"] is None:
                         r["emb"] = own_emb[i]
                     r["sim"], r["doc"] = r["similarity"], r.get("doc")
                     rs.append(r)
-                path = os.path.join(CAND, "%s_%s.judged.jsonl" % (name, split)) if (held or not FULL) else \
+                path = os.path.join(CAND, "%s_heldoutall.judged.jsonl" % name) if held else \
+                    os.path.join(CAND, "%s_%s.judged.jsonl" % (name, split)) if not FULL else \
                     os.path.join(ROOT, "bench", "full", "%s_benchall.judged.jsonl" % name)
                 sc = by_id(path) if os.path.exists(path) else {}
             for r, i in zip(rs, self.ids):
@@ -101,6 +127,10 @@ class Data:
         for s in self.all:
             for r in self.cands[s]:
                 r["ce"] = float(vals[k]); k += 1
+        if JCE:
+            allrows = [r for s in self.all for r in self.cands[s]]
+            for r, v in zip(allrows, judge_ce_scores(allrows, held)):
+                r["jce"] = float(v)
         self.held = held
 
     def features(self):
@@ -135,6 +165,8 @@ class Data:
                      1.0 if r["reply"].rstrip().endswith("?") else 0.0,
                      1.0 if s == "pybot" and r.get("module") == "answers" else 0.0,
                      ins.get("key_cover", 0.0), ins.get("name_hit", 0.0), ins.get("has_entry", 0.0)]
+                if JCE:
+                    f.append(r["jce"])
                 f += [1.0 if s == t else 0.0 for t in SOURCES]
                 X.append(f); y.append(r["score"]); g.append(k); src.append(j)
         return np.array(X), np.array(y), np.array(g), np.array(src)
@@ -202,6 +234,12 @@ def report(title, y, g, src, pred, p_llm, llm, n, pred_llm_reply=None):
             print("  %-36s %s" % ("two-stage, margin %+.2f" % mg, "  ".join("%5.1f" % v for v in two_stage(p_llm - best, chosen, best, llm, pred_llm_reply, mg))))
         allc = two_stage(np.ones(n), chosen, best, llm, pred_llm_reply, 0.0)[-1]
         print("  model on every turn, scorer picks between its reply and Python: %.1f%%" % (100 * np.where(pred_llm_reply >= best, llm, chosen).mean()))
+    rank = p_llm - best
+    order = np.argsort(-rank, kind="stable")
+    fine = [100 * np.where(np.isin(np.arange(n), order[:int(round(f * n))]), llm, chosen).mean() for f in np.arange(0, 1.001, 0.01)]
+    par = next((k for k, v in enumerate(fine) if v >= 100 * llm.mean()), None)
+    print("  PyBot-90 (10%% model): %.1f%%   | model share needed to match the model alone: %s"
+          % (fine[10], "%d%%" % par if par is not None else "never"))
     print("  %-36s %s" % ("oracle deferral over chooser", "  ".join("%5.1f" % v for v in curve(llm - chosen, chosen, llm))))
     return chosen, best
 
