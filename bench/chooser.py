@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.join(ROOT, "bench")); sys.path.insert(0, ROOT)
 from hybrid.features import ABSTAIN, HANDS_BACK, content_words  # noqa: E402
 from signals import Log, OUT, SHARES, by_id, curve, inside, rows  # noqa: E402
 
-SOURCES = ("pybot", "entry-emb-trim2", "entry-ce-trim2", "recall-emb", "recall-ce", "crystal", "crystal12")
+SOURCES = ("pybot", "entry-emb-trim2", "entry-ce-trim2", "recall-emb", "recall-ce", "crystal", "crystal12", "crystal12-sts", "crystal12-k2", "crystal12-k3")
 CAND = os.path.join(ROOT, "bench", "cand")
 USE = [s for s in os.environ.get("SOURCES", "pybot,entry-emb-trim2,recall-emb").split(",") if s]
 EXTRA = os.environ.get("EXTRA", "1") == "1"   # also train the scorer on the small model's judged replies
@@ -34,6 +34,8 @@ LLM_SRC = "smollm2-360m-brief"
 FULL = os.environ.get("BENCH", "100") == "all"   # BENCH=all: score all 1,000 benchmark prompts (judged in bench/full)
 BTAG = "benchall" if FULL else "bench"
 JCE = os.environ.get("JCE", "0") == "1"          # add the distilled judge (bench/distill_judge.py) as a feature
+REL = os.environ.get("REL", "0") == "1"          # add within-prompt relative features
+REL_COLS = 12
 
 
 _CA = {}
@@ -165,11 +167,21 @@ class Data:
                      1.0 if r["reply"].rstrip().endswith("?") else 0.0,
                      1.0 if s == "pybot" and r.get("module") == "answers" else 0.0,
                      ins.get("key_cover", 0.0), ins.get("name_hit", 0.0), ins.get("has_entry", 0.0)]
+                f += [r.get("qq_sts", np.nan), r.get("qq_dup", np.nan)]      # is the matched question the same question
                 if JCE:
                     f.append(r["jce"])
                 f += [1.0 if s == t else 0.0 for t in SOURCES]
                 X.append(f); y.append(r["score"]); g.append(k); src.append(j)
-        return np.array(X), np.array(y), np.array(g), np.array(src)
+        X, g, src = np.array(X), np.array(g), np.array(src)
+        if REL:                                            # each candidate relative to the others for the same question
+            cont = X[:, :REL_COLS]
+            sel = src < len(USE)
+            mean = np.zeros((g.max() + 1, REL_COLS)); cnt = np.zeros(g.max() + 1)
+            np.add.at(mean, g[sel], np.nan_to_num(cont[sel])); np.add.at(cnt, g[sel], 1)
+            mx = np.full((g.max() + 1, REL_COLS), -np.inf)
+            np.maximum.at(mx, g[sel], np.nan_to_num(cont[sel], nan=-np.inf))
+            X = np.hstack([X, cont - (mean / cnt[:, None])[g], cont - mx[g]])
+        return X, np.array(y), g, src
 
 
 def llm_side(log, q_train_pos, llm_train, q_test, loo_pos=None):

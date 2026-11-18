@@ -65,6 +65,16 @@ The ceiling moved: with perfect picking, Python alone would now beat the model. 
 picking (31.6% chosen vs 41.2% possible) and routing (oracle routing at 10% model share: 41.4%).
 Judging moved to janos (2 × Quadro RTX 8000, same judge file, Pearson 0.99 with the Mac judge).
 
+Better picking, tried next (`bench/crystal_more.py`), none of which moved the full benchmark:
+- three more cached answers per turn (2nd/3rd nearest cached question, and the best paraphrase among
+  the 20 nearest by a small STS cross-encoder): the hindsight ceiling rose to 44.7%, but the chooser
+  picked no better (Python only 31.4%, PyBot-90 35.1%, parity at 24% model share). Cross-validation
+  on held-out had shown +2 points; it did not transfer.
+- question-to-question paraphrase scores (STS and Quora-duplicate cross-encoders) as features: no gain.
+- each candidate's signals relative to the other candidates for the same question: no gain.
+The picking problem is that the judge's preferences between plausible replies are hard to predict
+from anything visible at run time; more options only help if the scorer can tell them apart.
+
 ## Status: proof of concept on a 10x smaller sample
 
 Scored on **100 of SmolTalkBench's 1,000 prompts** (random, seed 0). The gate was fitted on up to
