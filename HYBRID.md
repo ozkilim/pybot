@@ -265,3 +265,31 @@ Replies for all 1,000 benchmark prompts and 600 to 1,198 held-out prompts are al
 for PyBot, SmolLM2-360M, SmolLM2-1.7B and Gemma3-1B; only the judging was cut to the small sample.
 The hybrid's reply is always one of two already-judged replies, so scoring any gate setting needs no
 further judge calls.
+
+## A stronger comparator: Llama-3.1-8B
+
+Same benchmark (all 1,000 prompts), same judge, same brief system prompt, but the model the hybrid defers to
+is Llama-3.1-8B-Instruct (Q4, served with llama.cpp on janos), and the same 33,133 cached questions were answered
+again by the 8B (`crystal12l`). Scripts: `bench/l8_judge.sh`, `bench/l8_cache.sh`, figure `bench/strong_model.py`.
+
+| Full benchmark (n=1,000) | win rate |
+|---|---:|
+| Llama-3.1-8B alone | **80.2%** |
+| SmolLM2-360M alone | 38.8% |
+| 8B-written cache alone (nearest question) | 31.3% (360M-written cache: 13.3%) |
+| Python only, old candidates | 31.5% |
+| **Python only, + 8B cache (zero model calls)** | **38.7%** |
+| PyBot-90 (10% to the 8B), old / + 8B cache | 38.8% / 45.7% |
+| 30% / 50% to the 8B, + 8B cache | 58.2% / 68.3% |
+| Model share needed to match the 8B | 93% |
+| Perfect routing at 10% / 50% | 48.7% / 80.8% |
+
+![strong model](bench/results/strong_model.png)
+
+What it says: a cache written by a strong model is the best Python candidate we have; with zero model calls the
+hybrid now ties the 360M. But against the 8B itself the curve is close to a straight line: the 8B beats every
+Python reply on almost every prompt, so there is little to route around (even perfect routing needs ~50% of turns
+to match it). Matching a weak model cheaply worked because the weak model was often no better than a good
+lookup; a strong model is better nearly everywhere, and a nearest-question answer is an answer to a *different*
+question. Getting close to a strong model with few calls needs cache hits on the user's actual question
+(a far larger or traffic-driven cache), not better picking.

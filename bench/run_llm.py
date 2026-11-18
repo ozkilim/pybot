@@ -11,7 +11,15 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 
-def chat(model, text, system=None, host="http://localhost:11434", max_tokens=256):
+def chat(model, text, system=None, host="http://localhost:11434", max_tokens=256, base_url=None):
+    if base_url:   # OpenAI-compatible server (e.g. llama-server)
+        messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": text}]
+        body = {"model": model, "messages": messages, "temperature": 0, "seed": 0, "max_tokens": max_tokens}
+        request = urllib.request.Request(base_url.rstrip("/") + "/chat/completions", data=json.dumps(body).encode(),
+                                         headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(request, timeout=300) as response:
+            data = json.load(response)
+        return data["choices"][0]["message"]["content"], data.get("usage", {}).get("completion_tokens", 0)
     messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": text}]
     body = {"model": model, "messages": messages, "stream": False, "think": False,
             "options": {"temperature": 0, "seed": 0, "num_predict": max_tokens}}
@@ -36,6 +44,7 @@ def main():
     parser.add_argument("dst")
     parser.add_argument("--system", default=None)
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--base-url", default=None, help="OpenAI-compatible server instead of Ollama")
     args = parser.parse_args()
     rows = [json.loads(line) for line in open(args.src)]
     os.makedirs(os.path.dirname(args.dst), exist_ok=True)
@@ -44,7 +53,7 @@ def main():
 
     def work(row):
         start = time.perf_counter()
-        text, tokens = chat(args.model, row["instruction"], args.system)
+        text, tokens = chat(args.model, row["instruction"], args.system, base_url=args.base_url)
         # Same normalisation as PyBot's interface: one non-empty line.
         return {"id": row["id"], "instruction": row["instruction"], "reply": " ".join(text.split()) or "Hello!",
                 "tokens": tokens, "seconds": time.perf_counter() - start}

@@ -28,7 +28,7 @@ OUT = os.path.join(ROOT, "bench", "out")
 TAG = os.environ.get("CRYSTAL", "crystal")      # crystal2 = second, larger cache (questions2)
 QFILE, AFILE = os.path.join(OUT, TAG + "_q.jsonl"), os.path.join(OUT, TAG + "_a.jsonl")
 WRITER = "qwen2.5:7b"
-ANSWERER = "smollm2:360m"
+ANSWERER = os.environ.get("ANSWERER", "smollm2:360m")
 
 
 def categories():

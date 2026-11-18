@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.join(ROOT, "bench")); sys.path.insert(0, ROOT)
 from hybrid.features import ABSTAIN, HANDS_BACK, content_words  # noqa: E402
 from signals import Log, OUT, SHARES, by_id, curve, inside, rows  # noqa: E402
 
-SOURCES = ("pybot", "entry-emb-trim2", "entry-ce-trim2", "recall-emb", "recall-ce", "crystal", "crystal12", "crystal12-sts", "crystal12-k2", "crystal12-k3")
+SOURCES = ("pybot", "entry-emb-trim2", "entry-ce-trim2", "recall-emb", "recall-ce", "crystal", "crystal12", "crystal12-sts", "crystal12-k2", "crystal12-k3", "crystal12l")
 CAND = os.path.join(ROOT, "bench", "cand")
 USE = [s for s in os.environ.get("SOURCES", "pybot,entry-emb-trim2,recall-emb").split(",") if s]
 EXTRA = os.environ.get("EXTRA", "1") == "1"   # also train the scorer on the small model's judged replies
