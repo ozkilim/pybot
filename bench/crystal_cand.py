@@ -15,9 +15,12 @@ def rows(p):
     return [json.loads(line) for line in open(p)]
 
 
+TAG = os.environ.get("CRYSTAL", "crystal")
+
+
 def main():
-    cache = rows(os.path.join(OUT, "crystal_a.jsonl"))
-    CQ = np.load(os.path.join(OUT, "crystal_q_emb.npy"))
+    cache = rows(os.path.join(OUT, TAG + "_a.jsonl"))
+    CQ = np.load(os.path.join(OUT, TAG + "_q_emb.npy"))
     held = rows(os.path.join(ROOT, "bench", "data", "heldout.jsonl"))
     bench = {r["id"]: r for r in rows(os.path.join(ROOT, "bench", "data", "smoltalkbench.jsonl"))}
     border = [r["id"] for r in rows(os.path.join(OUT, "pybot_bench.jsonl"))]
@@ -26,8 +29,8 @@ def main():
         S = Q @ CQ.T
         best = S.argmax(1)
         out = [{"id": r["id"], "instruction": r["instruction"], "reply": cache[j]["reply"], "cached_q": cache[j]["instruction"],
-                "similarity": float(S[k, j]), "crystal": int(j)} for k, (r, j) in enumerate(zip(items, best))]
-        with open(os.path.join(OUT, "crystal_%s.jsonl" % tag), "w") as f:
+                "similarity": float(S[k, j]), "crystal": int(j), "cache": TAG} for k, (r, j) in enumerate(zip(items, best))]
+        with open(os.path.join(OUT, "%s_%s.jsonl" % (TAG, tag)), "w") as f:
             f.writelines(json.dumps(x) + "\n" for x in out)
         sim = np.array([x["similarity"] for x in out])
         print("%s: %d prompts, cache similarity median %.2f, >=0.8: %.0f%%, >=0.9: %.0f%%"

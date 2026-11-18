@@ -39,6 +39,32 @@ and the deferral rule were fitted on held-out prompts only; the answer log it re
   share; best of everything 56.0%. The scorer leaves a lot on the table, mostly coin-flip judgements.
 - Candidate alone: entry 19.7%, logged answer 12.9%; chosen on 32% and 25% of prompts.
 
+### Pushing toward PyBot-90: a crystallized answer cache
+
+Goal: match the model with as few model calls as possible. The limit was the Python replies, not the
+picking: before this, even the best Python reply in hindsight could not match the model.
+
+- **Distilled judge (no gain).** A 22M cross-encoder trained on 5,138 judged held-out replies
+  predicts the judge well (AUROC 0.87 on PyBot's replies) but added nothing to the chooser.
+- **Crystallized cache.** Offline, Qwen2.5-7B wrote 33,133 everyday questions from the held-out
+  topics only (`bench/crystallize.py`; never the benchmark's prompts or topics), and SmolLM2-360M
+  answered each exactly as at run time. At run time the cached answer to the closest cached question
+  is a fourth Python candidate: a lookup, no model call. Building it took about 33,000 model calls, once.
+  Closest-question similarity on the benchmark: median 0.77, 37% of prompts at 0.8 or more.
+
+| Full benchmark (n=1,000) | 3 Python candidates | + answer cache |
+|---|---:|---:|
+| Python only | 30.5% | 31.6% |
+| PyBot-90 (10% of turns to the model) | 34.4% | 35.2% |
+| 30% to the model, vs model alone | +1.0 | +2.0 (CI −0.5 to +4.5) |
+| 40% to the model, vs model alone | +3.1 | +3.4 (CI +1.1 to +5.8) |
+| Model share needed to match the model alone | ~28% | **25%** |
+| Best Python reply in hindsight | 36.5% | **41.2%** (model alone: 38.8%) |
+
+The ceiling moved: with perfect picking, Python alone would now beat the model. The gap left is
+picking (31.6% chosen vs 41.2% possible) and routing (oracle routing at 10% model share: 41.4%).
+Judging moved to janos (2 × Quadro RTX 8000, same judge file, Pearson 0.99 with the Mac judge).
+
 ## Status: proof of concept on a 10x smaller sample
 
 Scored on **100 of SmolTalkBench's 1,000 prompts** (random, seed 0). The gate was fitted on up to

@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.join(ROOT, "bench")); sys.path.insert(0, ROOT)
 from hybrid.features import ABSTAIN, HANDS_BACK, content_words  # noqa: E402
 from signals import Log, OUT, SHARES, by_id, curve, inside, rows  # noqa: E402
 
-SOURCES = ("pybot", "entry-emb-trim2", "entry-ce-trim2", "recall-emb", "recall-ce", "crystal")
+SOURCES = ("pybot", "entry-emb-trim2", "entry-ce-trim2", "recall-emb", "recall-ce", "crystal", "crystal12")
 CAND = os.path.join(ROOT, "bench", "cand")
 USE = [s for s in os.environ.get("SOURCES", "pybot,entry-emb-trim2,recall-emb").split(",") if s]
 EXTRA = os.environ.get("EXTRA", "1") == "1"   # also train the scorer on the small model's judged replies
@@ -36,13 +36,13 @@ BTAG = "benchall" if FULL else "bench"
 JCE = os.environ.get("JCE", "0") == "1"          # add the distilled judge (bench/distill_judge.py) as a feature
 
 
-_CA = []
+_CA = {}
 
 
-def crystal_emb():
-    if not _CA:
-        _CA.append(np.load(os.path.join(OUT, "crystal_a_emb.npy")))
-    return _CA[0]
+def crystal_emb(tag="crystal"):
+    if tag not in _CA:
+        _CA[tag] = np.load(os.path.join(OUT, tag + "_a_emb.npy"))
+    return _CA[tag]
 
 
 def judge_ce_scores(rows_, held):
@@ -100,7 +100,7 @@ class Data:
                     r = dict(src[i])
                     r["emb"] = EE[ent_pos[r["entry"]]] if "entry" in r else (log.ref[r["doc"]] if r.get("doc") is not None else None)
                     if "crystal" in r:                                    # cached model answer (bench/crystallize.py)
-                        r["emb"] = crystal_emb()[r["crystal"]]
+                        r["emb"] = crystal_emb(r.get("cache", "crystal"))[r["crystal"]]
                     if r["emb"] is None:
                         r["emb"] = own_emb[i]
                     r["sim"], r["doc"] = r["similarity"], r.get("doc")
