@@ -250,6 +250,8 @@ def report(title, y, g, src, pred, p_llm, llm, n, pred_llm_reply=None):
     order = np.argsort(-rank, kind="stable")
     fine = [100 * np.where(np.isin(np.arange(n), order[:int(round(f * n))]), llm, chosen).mean() for f in np.arange(0, 1.001, 0.01)]
     par = next((k for k, v in enumerate(fine) if v >= 100 * llm.mean()), None)
+    if os.environ.get("DUMP"):     # 1%-step curve for figures
+        json.dump({"fine": fine, "model": 100 * llm.mean(), "python_only": fine[0]}, open(os.environ["DUMP"], "w"))
     print("  PyBot-90 (10%% model): %.1f%%   | model share needed to match the model alone: %s"
           % (fine[10], "%d%%" % par if par is not None else "never"))
     print("  %-36s %s" % ("oracle deferral over chooser", "  ".join("%5.1f" % v for v in curve(llm - chosen, chosen, llm))))
