@@ -7,7 +7,7 @@ import numpy as np
 BLUE, INK, INK2, MUTED, GRID, SURF = "#2a78d6", "#0b0b0b", "#52514e", "#8a8984", "#e6e5e0", "#fcfcfb"
 
 
-def draw(curve, out, title, sub, model_name, keys, llm_label):
+def draw(curve, out, title, sub, model_name, keys, llm_label, ylim=(35, 122)):
     d = json.load(open(curve))
     fine, m = np.array(d["fine"]), d["model"]
     py = 100 - np.arange(101)                 # share of chats Python answers
@@ -25,7 +25,7 @@ def draw(curve, out, title, sub, model_name, keys, llm_label):
         ax.annotate(txt % {"q": y, "w": fine[100 - x]}, (x, y), (x + dx, y + dy), fontsize=9.5, color=INK,
                     ha="right" if dx < 0 else "left", va="center",
                     arrowprops=dict(arrowstyle="-", color=MUTED, lw=.8, shrinkA=2, shrinkB=5))
-    ax.set_xlim(0, 102); ax.set_ylim(35, 122)
+    ax.set_xlim(0, 102); ax.set_ylim(*ylim)
     ax.set_xticks(range(0, 101, 10)); ax.set_xticklabels(["%d%%" % v for v in range(0, 101, 10)])
     ax.yaxis.set_major_formatter(lambda v, _: "%d%%" % v)
     ax.set_xlabel("share of chats answered by Python (no model call)", color=INK2, fontsize=10.5)
@@ -51,6 +51,20 @@ draw(R + "curve_360m.json", R + "moneyshot_exp1_360m.png",
 draw(R + "curve_8b.json", R + "moneyshot_exp2_8b.png",
      "Python answers half the chats at 85% of a much stronger LLM",
      "Experiment 2 · parent LLM: Llama-3.1-8B · Python side: same rules and retrieval, cache written by the 8B offline",
+     "Llama-3.1-8B", [(30, "30%% Python: %(q).0f%%", 3, 7), (50, "half Python: %(q).0f%%", 3, 7), (75, "75%% Python: %(q).0f%%", 3, 7),
+                      (90, "PyBot-90: %(q).0f%%", -4, -9), (100, "all Python, zero model calls: %(q).0f%%", -4, -8)],
+     (100, 103, "right"))
+
+# v2: the answer cache written offline by Gemma-3-12B (bench/crystal_writer.py); same router and scorer
+draw(R + "curve_exp1_g.json", R + "moneyshot_exp1_360m_v2.png",
+     "PyBot-90: Python answers 90% of chats, and beats the LLM by 12%",
+     "Experiment 1 · parent LLM: SmolLM2-360M · Python side: rules, retrieval, a cache written offline by Gemma-3-12B",
+     "SmolLM2-360M", [(100, "all Python, zero model calls: %(q).0f%% (a tie)", -4, -36), (90, "PyBot-90: %(q).0f%% (+4.8 pts, 95%% CI +1.9 to +7.9)", -4, -26),
+                      (50, "half Python: %(q).0f%%", 3, 6)],
+     (2, 96.5, "left"), ylim=(35, 135))
+draw(R + "curve_exp2_g.json", R + "moneyshot_exp2_8b_v2.png",
+     "Python answers half the chats at 87% of a much stronger LLM",
+     "Experiment 2 · parent LLM: Llama-3.1-8B · Python side: rules, retrieval, a cache written offline by Gemma-3-12B",
      "Llama-3.1-8B", [(30, "30%% Python: %(q).0f%%", 3, 7), (50, "half Python: %(q).0f%%", 3, 7), (75, "75%% Python: %(q).0f%%", 3, 7),
                       (90, "PyBot-90: %(q).0f%%", -4, -9), (100, "all Python, zero model calls: %(q).0f%%", -4, -8)],
      (100, 103, "right"))

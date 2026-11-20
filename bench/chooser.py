@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.join(ROOT, "bench")); sys.path.insert(0, ROOT)
 from hybrid.features import ABSTAIN, HANDS_BACK, content_words  # noqa: E402
 from signals import Log, OUT, SHARES, by_id, curve, inside, rows  # noqa: E402
 
-SOURCES = ("pybot", "entry-emb-trim2", "entry-ce-trim2", "recall-emb", "recall-ce", "crystal", "crystal12", "crystal12-sts", "crystal12-k2", "crystal12-k3", "crystal12l")
+SOURCES = ("pybot", "entry-emb-trim2", "entry-ce-trim2", "recall-emb", "recall-ce", "crystal", "crystal12", "crystal12-sts", "crystal12-k2", "crystal12-k3", "crystal12l", "crystal12g")
 CAND = os.path.join(ROOT, "bench", "cand")
 USE = [s for s in os.environ.get("SOURCES", "pybot,entry-emb-trim2,recall-emb").split(",") if s]
 EXTRA = os.environ.get("EXTRA", "1") == "1"   # also train the scorer on the small model's judged replies
@@ -304,7 +304,7 @@ def main():
         chosen, best = report("benchmark (%d prompts), fitted on held-out only" % len(B.ids), yb, gb, sb, pred, p_llm, llm_b, len(B.ids))
         rng = np.random.default_rng(0)
         order = np.argsort(-(p_llm - best), kind="stable")
-        for share in (0.0, 0.2, 0.3, 0.4, 0.5):
+        for share in (0.0, 0.1, 0.2, 0.3, 0.4, 0.5):
             d = np.zeros(len(chosen), bool); d[order[:int(round(share * len(chosen)))]] = True
             mix = np.where(d, llm_b, chosen); diff = mix - llm_b
             bt = diff[rng.integers(0, len(diff), (4000, len(diff)))].mean(1)

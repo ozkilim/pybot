@@ -293,3 +293,31 @@ to match it). Matching a weak model cheaply worked because the weak model was of
 lookup; a strong model is better nearly everywhere, and a nearest-question answer is an answer to a *different*
 question. Getting close to a strong model with few calls needs cache hits on the user's actual question
 (a far larger or traffic-driven cache), not better picking.
+
+## Pushing toward PyBot-90: a cache written by a stronger model
+
+The answer cache is filled offline, so nothing stops a stronger model from writing it. At run time it is still a
+Python lookup: no model call. Retrieval matches on the cached *question* only, so a prompt lands on the same
+entry whoever wrote the answers. Only the 1,791 entries some benchmark or held-out prompt actually retrieves can
+ever be served, so `bench/crystal_writer.py` rewrites just those; the result is identical to rewriting all
+33,133. Writers: Llama-3.1-8B (`crystal12l`) and Gemma-3-12B-it (`crystal12g`, Q4_K_M, brief prompt, greedy).
+Both are outside the judge's Qwen family.
+
+Full benchmark (n=1,000), same router and scorer as before (fit on held-out prompts only):
+
+| Cache answers written by | Cache alone | Python only (0 model calls) | PyBot-90 vs 360M (38.8%) | PyBot-90 vs 8B (80.2%) |
+|---|---:|---:|---:|---:|
+| SmolLM2-360M | 13.3% | 31.5% | 35.1% | 38.8% |
+| Llama-3.1-8B | 31.3% | 38.7% | 41.3% | 45.7% |
+| **Gemma-3-12B** | **34.1%** | **40.4%** | **43.6%** | **47.5%** |
+
+- **PyBot-90 is reached for the 360M.** Python answers 90% of chats, the 360M the other 10%: 43.6%, against
+  38.8% for the 360M on every chat (+4.8 points, 95% CI +1.9 to +7.9). Python alone ties it (+1.6, CI −1.7 to
+  +4.6). The peak is at half Python: 48.1% (+9.4, CI +7.1 to +11.6).
+- **Against the 8B the gain is real but small.** PyBot-90 rises 45.7% → 47.5% (59% of the 8B); half Python gives
+  69.8% (87%); matching the 8B needs it on 90% of chats.
+- Offering both the 8B and Gemma caches as candidates gives nothing over Gemma alone.
+- Caveat: the 360M is the model called at run time, but a 12B model wrote the cache offline. The fair headline is
+  "a lookup table distilled from a 12B model, plus 10% of calls to a 360M model, beats the 360M on every call."
+
+Figures: `bench/results/moneyshot_exp1_360m_v2.png`, `bench/results/moneyshot_exp2_8b_v2.png` (`bench/moneyshot2.py`).
